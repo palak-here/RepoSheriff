@@ -1,11 +1,9 @@
-import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
-
-const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 // ======================================================
 // TYPES
@@ -561,40 +559,56 @@ export async function POST(request: Request) {
     if (!githubUrl) {
       let response;
 
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (
+        let attempt = 1;
+        attempt <= 3;
+        attempt++
+      ) {
         try {
-          response = await groq.chat.completions.create({
-            model: GROQ_MODEL,
-            messages: [
-              {
-                role: "user",
-                content: message,
-              },
-            ],
-            temperature: 0.4,
-            max_completion_tokens: 1024,
-          });
+          response =
+            await ai.models.generateContent({
+              model: "gemini-3.6-flash",
+              contents: message,
+            });
 
           break;
         } catch (error: unknown) {
           console.error(
-            `Groq attempt ${attempt} failed:`,
+            `Gemini attempt ${attempt} failed:`,
             error
           );
+
+          const status =
+            (
+              error as Error & {
+                status?: number;
+              }
+            )?.status;
+
+          if (
+            status !== 503 &&
+            status !== 500 &&
+            status !== 429
+          ) {
+            throw error;
+          }
 
           if (attempt === 3) {
             throw error;
           }
 
           await new Promise((resolve) =>
-            setTimeout(resolve, attempt * 1000)
+            setTimeout(
+              resolve,
+              attempt * 1000
+            )
           );
         }
       }
 
       return NextResponse.json({
         reply:
-          response?.choices?.[0]?.message?.content ||
+          response?.text ||
           "I couldn't generate a response.",
       });
     }
@@ -684,7 +698,7 @@ export async function POST(request: Request) {
     );
 
     // ==================================================
-    // 9. ASK GROQ TO ANALYZE REPOSITORY
+    // 9. ASK GEMINI TO ANALYZE REPOSITORY
     // ==================================================
 
     const analysisPrompt = `
@@ -768,44 +782,52 @@ Rules for score:
     let response;
 
     // ==================================================
-    // 10. GROQ RETRY
+    // 10. GEMINI RETRY
     // ==================================================
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (
+      let attempt = 1;
+      attempt <= 3;
+      attempt++
+    ) {
       try {
-        response = await groq.chat.completions.create({
-          model: GROQ_MODEL,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Return only valid JSON. Do not use markdown or code fences.",
-            },
-            {
-              role: "user",
-              content: analysisPrompt,
-            },
-          ],
-          temperature: 0.2,
-          max_completion_tokens: 2048,
-          response_format: {
-            type: "json_object",
-          },
-        });
+        response =
+          await ai.models.generateContent({
+            model: "gemini-3.6-flash",
+            contents: analysisPrompt,
+          });
 
         break;
       } catch (error: unknown) {
         console.error(
-          `Groq attempt ${attempt} failed:`,
+          `Gemini attempt ${attempt} failed:`,
           error
         );
+
+        const status =
+          (
+            error as Error & {
+              status?: number;
+            }
+          )?.status;
+
+        if (
+          status !== 503 &&
+          status !== 500 &&
+          status !== 429
+        ) {
+          throw error;
+        }
 
         if (attempt === 3) {
           throw error;
         }
 
         await new Promise((resolve) =>
-          setTimeout(resolve, attempt * 1000)
+          setTimeout(
+            resolve,
+            attempt * 1000
+          )
         );
       }
     }
@@ -815,7 +837,7 @@ Rules for score:
     // ==================================================
 
     let reply =
-      response?.choices?.[0]?.message?.content ||
+      response?.text ||
       "";
 
     reply = reply
@@ -839,7 +861,7 @@ Rules for score:
       });
     } catch {
       console.error(
-        "Groq returned invalid JSON:",
+        "Gemini returned invalid JSON:",
         reply
       );
 
